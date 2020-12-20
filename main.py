@@ -4,6 +4,10 @@ import requests
 import argparse
 from bs4 import BeautifulSoup
 
+keySalt = "aB1cD2eF3G"
+customer_id = '5157796'
+
+# Parse Arguments
 parser = argparse.ArgumentParser(description='Download KKBooks')
 parser.add_argument('-u', '--url', help='URL of Book on KopyKitab')
 
@@ -14,6 +18,7 @@ if args.url is None:
     exit(0)
 
 # Ref: https://stackoverflow.com/questions/7160737/python-how-to-validate-a-url-in-python-malformed-or-not
+# URL Sanitization
 urlRegex = re.compile(
     r'^(?:http|ftp)s?://'
     r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'
@@ -22,17 +27,14 @@ urlRegex = re.compile(
     r'(?::\d+)?'
     r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
+# URL Check
 if re.match(urlRegex, args.url) is None:
     print("Please Provide Valid URL")
     exit(0)
 
-customer_id = '5157796'
-bookLink = args.url
-filePath = bookLink.split('com/')[1] + "-enc.pdf"
-
 print('[=>] KKBook Downloader Starting')
 print('[=>] Getting Book Details')
-product = requests.get(bookLink)
+product = requests.get(args.url)
 
 if product.status_code != 200:
     print("[X] Book Not Found!")
@@ -52,6 +54,7 @@ if bookLibrary.status_code != 200:
     print("[X] Books Data Fetching Failed!")
     exit(0)
 
+# Get Book Details
 booklib = bookLibrary.json()
 
 if not booklib['status']:
@@ -63,6 +66,7 @@ print('[=>] Checking If Book Available in Library')
 needToAdd = True
 product_link = None
 
+# Check Book Entry in Library
 bookList = booklib['results'][0]['products'][0]['products']
 for book in bookList:
     if product_id in book['product_id']:
@@ -70,6 +74,7 @@ for book in bookList:
         product_link = book['product_link']
         print("[=>] Found Book in Library")
 
+# Query to Book Library
 if needToAdd:
     print("[=>] Not Found, Adding Book into Library")
     addToLib = requests.get('https://www.kopykitab.com/index.php', params={
@@ -103,11 +108,18 @@ if needToAdd:
             product_link = book['product_link']
             print("[=>] Found New Book in Library")
 
+# Calculate Password for PDF
+pdfPass = hashlib.md5((keySalt + product_id).encode()).hexdigest()
+filePath = args.url.split('.com/')[1] + '-' + str(pdfPass) + ".pdf"
+
+print("[=>] PDF Password:", pdfPass)
+
+# Download PDF from Link
 with open(filePath, "wb") as f:
     print("[=>] Downloading %s " % filePath, sep='')
     response = requests.get(product_link, allow_redirects=True, stream=True)
 
-    if response.status_code is 200:
+    if response.status_code == 200:
         total_length = response.headers.get('content-length')
 
         if total_length is None:  # no content length header
@@ -119,17 +131,11 @@ with open(filePath, "wb") as f:
                 dl += len(data)
                 f.write(data)
                 done = int(50 * dl / total_length)
+                # Progress Bar
                 print("\r[%s%s]" % ('=' * done, ' ' * (50 - done)), sep='', end='\r', flush=True)
         print("\n[=>] File Downloaded", flush=True)
     else:
         print("[X] Failed to Download File!", flush=True)
         exit(0)
 
-keySalt = "aB1cD2eF3G"
-passData = keySalt + product_id
-m = hashlib.md5()
-m.update(passData.encode())
-
-pdfPass = m.hexdigest()
-print("[=>] PDF Password:", pdfPass)
 print("[=>] KKBook Downloader Process Complete")
